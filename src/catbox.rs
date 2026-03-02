@@ -1,157 +1,72 @@
-use reqwest::Client;
-use reqwest::multipart::{Form, Part};
 use anyhow::{Context, Result};
+use reqwest::multipart::{Form, Part};
+use reqwest::Client;
+use serde::Deserialize;
 use std::time::Duration;
 
-pub struct CatboxUploader {
-    api_url: String,
-    userhash: String,
+#[derive(Deserialize, Debug)]
+struct FreeimageResponse {
+    status_code: u16,
+    image: Option<FreeimageImage>,
+    error: Option<FreeimageError>,
+}
+
+#[derive(Deserialize, Debug)]
+struct FreeimageImage {
+    url: String, // 直接获取图片的直链
+}
+
+#[derive(Deserialize, Debug)]
+struct FreeimageError {
+    message: String,
+}
+
+#[derive(Clone)]
+pub struct FreeimageUploader {
+    api_key: String,
     client: Client,
 }
 
-impl CatboxUploader {
-    // 构造函数
-    pub fn new(api_url: &str, userhash: &str) -> Self {
+impl FreeimageUploader {
+    pub fn new(api_key: &str) -> Self {
         Self {
-            api_url: api_url.to_string(),
-            userhash: userhash.to_string(),
-            client: Client::new(),
+            api_key: api_key.to_string(),
+            client: Client::builder()
+                .timeout(Duration::from_secs(60)) // 给予图床充裕的响应时间
+                .build()
+                .unwrap(),
         }
     }
 
-    // 上传文件方法
-    pub async fn upload_file(
-        &self,
-        file_name: &str,
-        file_bytes: &[u8],
-    ) -> Result<String> {
+    pub async fn upload_file(&self, file_name: &str, file_bytes: &[u8]) -> Result<String> {
         let form = Form::new()
-            .text("reqtype", "fileupload") // 请求类型
-            .text("userhash", self.userhash.clone()) // 用户哈希（可以为空，用于匿名上传）
-            .part("fileToUpload", Part::bytes(file_bytes.to_vec()).file_name(file_name.to_string()));
-
-        println!("Sending request to: {}", &self.api_url);
-        println!("Userhash: {}", self.userhash);
+            .text("key", self.api_key.clone())
+            .part("source", Part::bytes(file_bytes.to_vec()).file_name(file_name.to_string()));
 
         let res = self.client
-            .post(&self.api_url)
+            .post("https://freeimage.host/api/1/upload")
             .multipart(form)
-            .header("User-Agent", "exloli-client/1.0")
-            .timeout(Duration::from_secs(30))
+            .header("User-Agent", "exloli-client/2.0")
             .send()
-            .await;
+            .await?;
 
-        match res {
-            Ok(response) => {
-                let status = response.status(); // 提取状态码
-                let text = response.text().await.context("Failed to read response body")?;
+        let status = res.status();
+        let text = res.text().await.context("无法读取 Freeimage 响应体")?;
 
-                if status.is_success() {
-                println!("Response from Catbox: {}", text);
-                if text.starts_with("https://files.catbox.moe/") {
-                    Ok(text) // 返回完整的 URL
-                } else {
-                    Err(anyhow::anyhow!(format!(
-                        "响应中返回的不是有效 URL，响应内容: {}",
-                        text
-                    )))
-                }
+        if status.is_success() {
+            // 解析 Chevereto 架构的标准 JSON
+            let parsed: FreeimageResponse = serde_json::from_str(&text)
+                .context(format!("JSON 解析失败: {}", text))?;
+            
+            if let Some(image) = parsed.image {
+                Ok(image.url)
+            } else if let Some(err) = parsed.error {
+                Err(anyhow::anyhow!("图床 API 拒绝请求: {}", err.message))
             } else {
-                Err(anyhow::anyhow!(format!(
-                    "上传失败: 状态码: {}, 响应内容: {}",
-                    status,
-                    text
-                )))
+                Err(anyhow::anyhow!("未知的 JSON 格式: {}", text))
             }
-        }
-        Err(err) => Err(anyhow::anyhow!("Failed to send request to Catbox API: {:?}", err)),
-    }
-}
-
-
-   // 创建专辑
-    pub async fn create_album(
-        &self,
-        title: &str,
-        description: &str,
-        files: &[&str], // 直接使用文件的短链接（不包含完整 URL）
-    ) -> Result<String> {
-        let file_list = files.join(" "); // 拼接文件列表，用空格分隔
-        let form = Form::new()
-            .text("reqtype", "createalbum")
-            .text("userhash", self.userhash.clone())
-            .text("title", title.to_string())
-            .text("desc", description.to_string())
-            .text("files", file_list);
-    
-        let res = self.client
-            .post(&self.api_url)
-            .multipart(form)
-            .header("User-Agent", "exloli-client/1.0")
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await;
-    
-        match res {
-            Ok(response) => {
-                let status = response.status();
-                let text = response.text().await.context("Failed to read response body")?;
-                if status.is_success() {
-                    println!("Album created: {}", text);
-                    Ok(text)
-                } else {
-                    Err(anyhow::anyhow!(format!(
-                        "创建专辑失败: 状态码: {}, 响应内容: {}",
-                        status,
-                        text
-                    )))
-                }
-            }
-            Err(err) => Err(anyhow::anyhow!(format!(
-                "请求创建专辑时出错: {:?}",
-                err
-            ))),
-        }
-    }
-
-
-   // 添加文件到专辑
-    pub async fn add_to_album(&self, short: &str, files: &[&str]) -> Result<()> {
-        // 将文件列表连接成一个空格分隔的字符串，文件名为短链接（如：4b71m5.webp）
-        let file_list = files.join(" "); // 现在传递的是短链接文件名
-        let form = Form::new()
-            .text("reqtype", "addtoalbum")
-            .text("userhash", self.userhash.clone())
-            .text("short", short.to_string())
-            .text("files", file_list);
-    
-        let res = self.client
-            .post(&self.api_url)
-            .multipart(form)
-            .header("User-Agent", "exloli-client/1.0")
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await;
-    
-        match res {
-            Ok(response) => {
-                let status = response.status();
-                let text = response.text().await.context("Failed to read response body")?;
-                if status.is_success() {
-                    println!("Files added to album: {}", text);
-                    Ok(())
-                } else {
-                    Err(anyhow::anyhow!(format!(
-                        "添加文件到专辑失败: 状态码: {}, 响应内容: {}",
-                        status,
-                        text
-                    )))
-                }
-            }
-            Err(err) => Err(anyhow::anyhow!(format!(
-                "请求添加文件到专辑时出错: {:?}",
-                err
-            ))),
+        } else {
+            Err(anyhow::anyhow!("上传失败，HTTP 状态码: {}, 内容: {}", status, text))
         }
     }
 }
