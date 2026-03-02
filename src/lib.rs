@@ -2,7 +2,7 @@ pub mod bot;
 pub mod config;
 pub mod database;
 pub mod ehentai;
-mod catbox;
+pub mod freeimage;
 pub mod tags;
 pub mod uploader;
 pub mod utils;
