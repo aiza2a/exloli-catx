@@ -34,6 +34,8 @@ pub enum CallbackData {
     PrevPage(i32, i32, i32),
     /// 挑战 ID、画师名称
     Challenge(i64, String),
+    /// 随机再来一本，附带之前的搜索标签
+    RandomAnother(String),
 }
 
 impl CallbackData {
@@ -43,11 +45,14 @@ impl CallbackData {
             Self::NextPage(a, b, c) => format!("> {} {} {}", a, b, c),
             Self::PrevPage(a, b, c) => format!("< {} {} {}", a, b, c),
             Self::Challenge(a, b) => format!("challenge {}:{}", a, b),
+            // 新增 pack 邏輯
+            Self::RandomAnother(tags) => {
+                if tags.is_empty() { "random".to_string() } else { format!("random {}", tags) }
         }
     }
 
     pub fn unpack(s: &str) -> Option<Self> {
-        let (cmd, data) = s.split_once(' ')?;
+        let (cmd, data) = s.split_once(' ').unwrap_or((s, ""));
         match cmd {
             "vote" => {
                 let (a, b) = data.split_once(' ')?;
@@ -67,6 +72,8 @@ impl CallbackData {
                 let (a, b) = data.split_once(':')?;
                 Some(Self::Challenge(a.parse().ok()?, b.to_string()))
             }
+            // 新增 unpack 邏輯
+            "random" => Some(Self::RandomAnother(data.to_string())),
             _ => None,
         }
     }
