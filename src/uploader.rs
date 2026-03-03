@@ -12,6 +12,9 @@ use teloxide::types::MessageId;
 use tokio::task::JoinHandle;
 use tokio::time;
 use tracing::{debug, error, info, Instrument};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 use crate::bot::Bot;
 use crate::config::Config;
@@ -309,43 +312,71 @@ impl ExloliUploader {
             .timeout(Duration::from_secs(30))
             .build()?;
             
+        // 從你的 config 中讀取允許的並發數 (建議設為 3 到 5)
+        let concurrent_limit = self.config.threads_num.max(1); 
+        
         let uploader = tokio::spawn(
             async move {
                 let imgbb = ImgBBUploader::new(&api_key);
+                // 創建信號量，嚴格限制同時向 ImgBB 發起請求的數量
+                let semaphore = Arc::new(Semaphore::new(concurrent_limit));
+                // 創建任務集合，管理所有非同步上傳任務
+                let mut join_set = JoinSet::new();
+
                 while let Some((page, (fileindex, url))) = rx.recv().await {
                     let mut suffix = url.split('.').last().unwrap_or("jpg");
                     
-                    // 保留 catx 針對 Telegram 預覽 webp 的修復 Hack
                     if suffix == "webp" { suffix = "jpg"; }
                     if suffix == "gif" { continue; } 
                     
                     let filename = format!("{}.{}", page.hash(), suffix);
                     
-                    // 容錯機制：單張失敗不中斷進程 (Fail-Safe)
-                    match http_client.get(url).send().await {
-                        Ok(res) => {
-                            if let Ok(bytes) = res.bytes().await {
-                                match imgbb.upload_file(&filename, &bytes).await {
-                                    Ok(uploaded_url) => {
-                                        info!("已上傳至 ImgBB: {} -> {}", page.page(), uploaded_url);
-                                        ImageEntity::create(fileindex, page.hash(), &uploaded_url).await?;
-                                        PageEntity::create(page.gallery_id(), page.page(), fileindex).await?;
+                    // 等待獲取通行證（如果當前並發數滿了，這裡會阻塞等待）
+                    let permit = semaphore.clone().acquire_owned().await.unwrap();
+                    let client_clone = http_client.clone();
+                    let imgbb_clone = imgbb.clone();
+
+                    // 開啟新的協程並發處理單張圖片
+                    join_set.spawn(async move {
+                        let mut success = false;
+                        for attempt in 1..=3 {
+                            match client_clone.get(&url).send().await {
+                                Ok(res) => {
+                                    if let Ok(bytes) = res.bytes().await {
+                                        match imgbb_clone.upload_file(&filename, &bytes).await {
+                                            Ok(uploaded_url) => {
+                                                info!("已上傳至 ImgBB: {} -> {} (第 {} 次嘗試成功)", page.page(), uploaded_url, attempt);
+                                                let _ = ImageEntity::create(fileindex, page.hash(), &uploaded_url).await;
+                                                let _ = PageEntity::create(page.gallery_id(), page.page(), fileindex).await;
+                                                success = true;
+                                                break; 
+                                            }
+                                            Err(err) => error!("圖片 {} 上傳 ImgBB 失敗 (嘗試 {}/3): {}", page.page(), attempt, err),
+                                        }
                                     }
-                                    Err(err) => error!("圖片 {} 上傳 ImgBB 失敗: {}", page.page(), err),
                                 }
+                                Err(err) => error!("圖片 {} 從 E 站下載失敗 (嘗試 {}/3): {}", page.page(), attempt, err),
                             }
+                            // 失敗退避：只讓當前這個失敗的協程休眠 3 秒，不影響其他正在上傳的圖片！
+                            if attempt < 3 { tokio::time::sleep(Duration::from_secs(3)).await; }
                         }
-                        Err(err) => error!("圖片 {} 從 E 站下載失敗: {}", page.page(), err),
-                    }
+                        
+                        if !success { error!("🚨 圖片 {} 徹底上傳失敗，已放棄！", page.page()); }
+                        
+                        // 任務結束，自動釋放 permit，允許下一張圖片開始上傳
+                        drop(permit);
+                    }.in_current_span());
                 }
+                
+                // 等待所有並發上傳任務全部執行完畢
+                while let Some(res) = join_set.join_next().await {
+                    if let Err(e) = res { error!("並發任務執行異常: {}", e); }
+                }
+                
                 Result::<()>::Ok(())
             }
             .in_current_span(),
         );
-
-        tokio::try_join!(flatten(getter), flatten(uploader))?;
-        Ok(())
-    }
 
     /// 產生 Telegraph 文章 (剔除了多餘的相冊邏輯)
     async fn publish_telegraph_article<T: GalleryInfo>(
