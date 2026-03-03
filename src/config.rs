@@ -23,7 +23,7 @@ pub struct Config {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ImgBBConfig {
-    pub api_key: String,
+    pub api_key: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
