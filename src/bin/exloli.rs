@@ -7,14 +7,17 @@ use exloli_next::ehentai::EhClient;
 use exloli_next::tags::EhTagTransDB;
 use exloli_next::uploader::ExloliUploader;
 use teloxide::prelude::*;
-use teloxide::types::ParseMode;
+use teloxide::types::{ParseMode, Recipient, BotCommandScope};
+use teloxide::utils::command::BotCommands;
+// 引入指令定義
+use exloli_next::bot::command::{AdminCommand, PublicCommand};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::new("./config.toml")?;
     CHANNEL_ID.set(config.telegram.channel_id.to_string()).unwrap();
 
-    // NOTE: 全局数据库连接需要用这个变量初始化
+    // NOTE: 全局數據庫連接需要用這個變量初始化
     env::set_var("DATABASE_URL", &config.database_url);
     env::set_var("RUST_LOG", &config.log_level);
 
@@ -25,10 +28,38 @@ async fn main() -> Result<()> {
 
     let trans = EhTagTransDB::new(&config.exhentai.trans_file);
     let ehentai = EhClient::new(&config.exhentai.cookie).await?;
+    
     let bot = Bot::new(&config.telegram.token)
         .throttle(Default::default())
         .parse_mode(ParseMode::Html)
         .cache_me();
+
+    // ========================================================
+    // 🔥🔥🔥【關鍵修改】註冊指令菜單 🔥🔥🔥
+    // ========================================================
+    
+    tracing::info!("正在向 Telegram 註冊指令列表...");
+
+    // 1. 為所有用戶註冊公共指令
+    bot.set_my_commands(PublicCommand::bot_commands())
+        .scope(BotCommandScope::Default)
+        .await?;
+
+    // 2. 為管理員群組註冊完整指令 (包含 AdminCommand)
+    // 只有在 config.toml 中配置的 group_id 群組裡，輸入 / 才會看到 delete, erase 等危險指令
+    if let Recipient::Id(chat_id) = config.telegram.group_id {
+        let mut full_commands = PublicCommand::bot_commands();
+        full_commands.extend(AdminCommand::bot_commands());
+        
+        bot.set_my_commands(full_commands)
+            .scope(BotCommandScope::Chat { chat_id })
+            .await?;
+        tracing::info!("已為管理群組 {} 註冊管理員指令。", chat_id);
+    }
+    
+    tracing::info!("指令註冊完成！");
+    // ========================================================
+
     let uploader =
         ExloliUploader::new(config.clone(), ehentai.clone(), bot.clone(), trans.clone()).await?;
 
