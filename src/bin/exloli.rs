@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
     // 2. 為管理員群組註冊完整指令 (包含 AdminCommand)
     // 這裡修正了 ChatId 和 Recipient 的轉換邏輯
     let admin_chat_id = config.telegram.group_id;
-    if !admin_chat_id.is_invalid() {
+    if admin_chat_id.0 != 0 {
         let mut full_commands = PublicCommand::bot_commands();
         full_commands.extend(AdminCommand::bot_commands());
         
