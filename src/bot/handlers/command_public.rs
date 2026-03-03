@@ -9,6 +9,8 @@ use teloxide::types::InputFile;
 use teloxide::utils::command::BotCommands;
 use teloxide::utils::html::escape;
 use tracing::info;
+use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+use crate::bot::utils::CallbackData;
 
 use crate::bot::command::{AdminCommand, PublicCommand};
 use crate::bot::handlers::{
@@ -35,7 +37,7 @@ pub fn public_command_handler(
         .branch(case![PublicCommand::Best(args)].endpoint(cmd_best))
         .branch(case![PublicCommand::Challenge].endpoint(cmd_challenge))
         .branch(case![PublicCommand::Upload(args)].endpoint(cmd_upload))
-        .branch(case![PublicCommand::Random].endpoint(cmd_random))
+        .branch(.branch(case![PublicCommand::Random(args)].endpoint(cmd_random)))
         .branch(case![PublicCommand::Stats].endpoint(cmd_stats))
         .branch(case![PublicCommand::Help].endpoint(cmd_help))
 }
@@ -253,37 +255,84 @@ async fn cmd_query(bot: Bot, msg: Message, cfg: Config, url_text: String) -> Res
     Ok(())
 }
 
-async fn cmd_random(bot: Bot, msg: Message, cfg: Config) -> Result<()> {
-    info!("{}: /random", msg.from().unwrap().id);
+async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result<()> {
+    info!("{}: /random {}", msg.from().unwrap().id, args);
     
-    match GalleryEntity::get_random().await? {
-        Some(gallery) => {
-            let poll = PollEntity::get_by_gallery(gallery.id).await?;
-            let score = poll.as_ref().map(|p| p.score * 100.).unwrap_or(0.0);
-            let rank = match poll {
-                Some(p) => p.rank().await? * 100.,
-                None => 0.0,
-            };
-            
-            let preview = gallery_preview_url(cfg.telegram.channel_id, gallery.id).await?;
-            let url = gallery.url().url();
-            
-            reply_to!(
-                bot,
-                msg,
-                format!(
-                    "🎲 <b>隨機抽取結果</b>\n\n<b>{}</b>\n\n消息：{}\n地址：{}\n評分：{:.2}（{:.2}%）",
+    let mut parts: Vec<&str> = args.split_whitespace().collect();
+    let mut count = 1;
+    
+    // 檢查最後一個參數是否為數字（推送數量）
+    if let Some(last) = parts.last() {
+        if let Ok(c) = last.parse::<usize>() {
+            count = c;
+            parts.pop(); // 彈出數字，剩下的就是標籤
+        }
+    }
+    
+    // 強制限制：最小 1 篇，最大 10 篇
+    count = count.clamp(1, 10);
+    let tags: Vec<String> = parts.into_iter().map(|s| s.to_string()).collect();
+
+    for i in 0..count {
+        let gallery = if tags.is_empty() {
+            GalleryEntity::get_random().await?
+        } else {
+            GalleryEntity::get_random_with_tags(&tags).await?
+        };
+
+        match gallery {
+            Some(gallery) => {
+                let poll = PollEntity::get_by_gallery(gallery.id).await?;
+                let score = poll.as_ref().map(|p| p.score * 100.).unwrap_or(0.0);
+                let rank = match &poll {
+                    Some(p) => p.rank().await? * 100.,
+                    None => 0.0,
+                };
+                
+                // Telegram 会自动通过这裡的链接产生富文本预览图 (封面图)
+                let preview = gallery_preview_url(cfg.telegram.channel_id.clone(), gallery.id).await?;
+                let url = gallery.url().url();
+                
+                let text = format!(
+                    "🎲 <b>隨機抽取結果</b>\n\n<b>{}</b>\n\n📄 <b>預覽：</b>{}\n🔗 <b>地址：</b>{}\n⭐️ <b>評分：</b>{:.2}（{:.2}%）",
                     gallery.title_jp.unwrap_or(gallery.title),
                     preview,
                     url,
                     score,
                     rank
-                )
-            )
-            .await?;
+                );
+
+                let mut msg_req = bot.send_message(msg.chat.id, text);
+
+                // 只有最後一條消息添加「再來一個本子」按鈕，避免刷屏時滿屏按鈕
+                if i == count - 1 {
+                    let mut tags_str = tags.join(" ");
+                    if tags_str.len() > 40 {
+                        tags_str = tags_str[..40].to_string(); // 防止超出 Telegram 內部按鈕資料 64 字节的限制
+                    }
+                    let keyboard = InlineKeyboardMarkup::new(vec![vec![
+                        InlineKeyboardButton::callback("🎲 再來一個本子", CallbackData::RandomAnother(tags_str).pack()),
+                    ]]);
+                    msg_req = msg_req.reply_markup(keyboard);
+                }
+
+                msg_req.await?;
+            }
+            None => {
+                let tag_str = tags.join(", ");
+                if tags.is_empty() {
+                    reply_to!(bot, msg, "資料庫是空的，先去上傳幾本吧！").await?;
+                } else {
+                    // 若標籤不存在則發送你要求的提示消息
+                    reply_to!(bot, msg, format!("❌ <b>未找到匹配的本子</b>\n沒有找到包含標籤 <code>{}</code> 的畫廊，請更換關鍵詞再試一次。", tag_str)).await?;
+                }
+                break; // 如果沒本子了就直接中斷循環
+            }
         }
-        None => {
-            reply_to!(bot, msg, "資料庫是空的，先去上傳幾本吧！").await?;
+        
+        // 批量推送時加入微小延遲，防止觸發 Telegram 刷屏風控
+        if count > 1 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
     }
     Ok(())
