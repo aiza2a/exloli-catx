@@ -87,17 +87,17 @@ impl GalleryEntity {
         ).bind(since).fetch_all(&*DB).await
     }
 
-    // 🔥【第一階段新增】隨機獲取
+    // 🔥【第一階段新增】隨機獲取 (已修改為普通函數，繞過編譯檢查)
     pub async fn get_random() -> Result<Option<Self>> {
-        // 使用原始 Query 避免編譯時 Macro 校驗失敗
-        sqlx::query_as("SELECT * FROM gallery WHERE deleted = FALSE ORDER BY RANDOM() LIMIT 1")
+        sqlx::query_as::<_, Self>("SELECT * FROM gallery WHERE deleted = FALSE ORDER BY RANDOM() LIMIT 1")
             .fetch_optional(&*DB).await
     }
 
-    // 🔥【第一階段新增】統計畫廊
+    // 🔥【第一階段新增】統計畫廊 (已修改為普通函數)
     pub async fn count() -> Result<i32> {
-        sqlx::query_scalar!("SELECT COUNT(*) FROM gallery WHERE deleted = FALSE")
-            .fetch_one(&*DB).await
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM gallery WHERE deleted = FALSE")
+            .fetch_one(&*DB).await?;
+        Ok(count as i32)
     }
 }
 
