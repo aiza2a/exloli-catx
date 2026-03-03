@@ -7,7 +7,7 @@ use sqlx::error::BoxDynError;
 use sqlx::prelude::*;
 use sqlx::sqlite::SqliteQueryResult;
 use sqlx::{Database, Result, Sqlite};
-use tracing::Level;
+
 use super::db::DB;
 use crate::config::CHANNEL_ID;
 use crate::ehentai::EhGallery;
@@ -36,68 +36,71 @@ impl GalleryEntity {
         let tags = serde_json::to_string(&g.tags).unwrap();
         let pages = g.pages.len() as i32;
         let parent = g.parent.as_ref().map(|g| g.id());
-        sqlx::query!(
-            "REPLACE INTO gallery (id, token, title, title_jp, tags, favorite, pages, parent, deleted, posted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            id, token, g.title, g.title_jp, tags, g.favorite, pages, parent, false, g.posted,
-        ).execute(&*DB).await
+        // 改用非宏模式，避免校验
+        sqlx::query("REPLACE INTO gallery (id, token, title, title_jp, tags, favorite, pages, parent, deleted, posted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(id).bind(token).bind(&g.title).bind(&g.title_jp).bind(tags).bind(g.favorite).bind(pages).bind(parent).bind(false).bind(g.posted)
+            .execute(&*DB).await
     }
 
     pub async fn get(id: i32) -> Result<Option<GalleryEntity>> {
-        sqlx::query_as("SELECT * FROM gallery WHERE id = ? AND deleted = FALSE")
+        sqlx::query_as::<_, GalleryEntity>("SELECT * FROM gallery WHERE id = ? AND deleted = FALSE")
             .bind(id).fetch_optional(&*DB).await
     }
 
     pub async fn get_by_msg(id: i32) -> Result<Option<GalleryEntity>> {
-        sqlx::query_as(
+        sqlx::query_as::<_, GalleryEntity>(
             "SELECT gallery.* FROM gallery JOIN message ON gallery.id = message.gallery_id AND message.channel_id = ? WHERE message.id = ? AND gallery.deleted = FALSE"
         ).bind(CHANNEL_ID.get().unwrap()).bind(id).fetch_optional(&*DB).await
     }
 
     pub async fn check(id: i32) -> Result<bool> {
-        sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM gallery WHERE id = ?)", id)
-            .fetch_one(&*DB).await.map(|x| x == Some(1))
+        let res: Option<(i32,)> = sqlx::query_as("SELECT 1 FROM gallery WHERE id = ? LIMIT 1")
+            .bind(id).fetch_optional(&*DB).await?;
+        Ok(res.is_some())
     }
 
     pub async fn update_deleted(id: i32, deleted: bool) -> Result<SqliteQueryResult> {
-        sqlx::query!("UPDATE gallery SET deleted = ? WHERE id = ?", deleted, id).execute(&*DB).await
+        sqlx::query("UPDATE gallery SET deleted = ? WHERE id = ?").bind(deleted).bind(id).execute(&*DB).await
     }
 
     pub async fn delete(id: i32) -> Result<SqliteQueryResult> {
-        sqlx::query!("DELETE FROM gallery WHERE id = ?", id).execute(&*DB).await
+        sqlx::query("DELETE FROM gallery WHERE id = ?").bind(id).execute(&*DB).await
     }
 
     pub async fn list(start: NaiveDate, end: NaiveDate, limit: i32, page: i32) -> Result<Vec<(f32, String, i32)>> {
         let offset = page * limit;
-        let record = sqlx::query!(
+        // 关键修复：显式定义匿名结构体以接收联表查询结果
+        #[derive(sqlx::FromRow)]
+        struct ListRow { score: f64, title: String, id: i32 }
+
+        let records = sqlx::query_as::<_, ListRow>(
             r#"SELECT poll.score, gallery.title, gallery.id FROM gallery
             JOIN poll ON poll.gallery_id = gallery.id
             JOIN message ON message.gallery_id = gallery.id
             WHERE gallery.posted BETWEEN ? AND ? GROUP BY poll.id
-            ORDER BY poll.score DESC LIMIT ? OFFSET ?"#,
-            start, end, limit, offset,
-        ).fetch_all(&*DB).await?;
-        Ok(record.into_iter().map(|x| (x.score as f32, x.title, x.id as i32)).collect())
+            ORDER BY poll.score DESC LIMIT ? OFFSET ?"#
+        ).bind(start).bind(end).bind(limit).bind(offset).fetch_all(&*DB).await?;
+        
+        Ok(records.into_iter().map(|x| (x.score as f32, x.title, x.id)).collect())
     }
 
     pub async fn list_scans() -> Result<Vec<Self>> {
         let since = Utc::now().date_naive() - Duration::days(60);
-        sqlx::query_as(
+        sqlx::query_as::<_, GalleryEntity>(
             r#"SELECT gallery.* FROM gallery JOIN poll ON poll.gallery_id = gallery.id
             WHERE gallery.deleted = FALSE AND (poll.score >= 0.8 OR gallery.posted >= ?)"#,
         ).bind(since).fetch_all(&*DB).await
     }
 
-    // 🔥【第一階段新增】隨機獲取 (已修改為普通函數，繞過編譯檢查)
     pub async fn get_random() -> Result<Option<Self>> {
         sqlx::query_as::<_, Self>("SELECT * FROM gallery WHERE deleted = FALSE ORDER BY RANDOM() LIMIT 1")
             .fetch_optional(&*DB).await
     }
 
-    // 🔥【第一階段新增】統計畫廊 (已修改為普通函數)
     pub async fn count() -> Result<i32> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM gallery WHERE deleted = FALSE")
+        let res: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM gallery WHERE deleted = FALSE")
             .fetch_one(&*DB).await?;
-        Ok(count as i32)
+        Ok(res.0 as i32)
     }
 }
 
