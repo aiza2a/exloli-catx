@@ -25,19 +25,25 @@ pub fn cmd_challenge_keyboard(
 }
 
 pub async fn cmd_best_text(
-    start: i32,
-    end: i32,
+    day_a: i32,
+    day_b: i32,
     offset: i32,
     channel: Recipient,
 ) -> Result<String> {
-    let start = Utc::now().date_naive() - Duration::days(start as i64);
-    let end = Utc::now().date_naive() - Duration::days(end as i64);
+    // 自動排序天數，確保 max_days 是較大的數字（更久以前），min_days 是較小的數字（較近期）
+    let max_days = day_a.max(day_b);
+    let min_days = day_a.min(day_b);
 
-    let mut text = format!("最近 {start} ~ {end} 天的本子排名（{offset}）");
+    // from_date 必須是較早的日期
+    let from_date = Utc::now().date_naive() - Duration::days(max_days as i64);
+    // to_date 必須是較晚的日期
+    let to_date = Utc::now().date_naive() - Duration::days(min_days as i64);
 
-    for (score, title, gid) in GalleryEntity::list(start, end, 20, offset).await? {
+    let mut text = format!("最近 {} ~ {} 天的本子排名（{}）", min_days, max_days, offset);
+
+    for (score, title, gid) in GalleryEntity::list(from_date, to_date, 20, offset).await? {
         let url = gallery_preview_url(channel.clone(), gid).await?;
-        text.push_str(&format!("\n<code>{:.2}</code> - {}", score * 100., link(&url, &title),));
+        text.push_str(&format!("\n<code>{:.2}</code> - {}", score * 100., link(&url, &title)));
     }
 
     Ok(text)
