@@ -1,6 +1,6 @@
 use sqlx::sqlite::SqliteQueryResult;
 use sqlx::Result;
-use tracing::Level;
+
 use super::db::DB;
 
 #[derive(sqlx::FromRow, Debug)]
@@ -18,44 +18,41 @@ pub struct ImageEntity {
 }
 
 impl ImageEntity {
-    #[tracing::instrument(level = Level::DEBUG)]
     pub async fn create(id: u32, hash: &str, url: &str) -> Result<SqliteQueryResult> {
-        sqlx::query!("INSERT OR IGNORE INTO image (id, hash, url) VALUES (?, ?, ?)", id, hash, url)
-            .execute(&*DB).await
+        sqlx::query("INSERT OR IGNORE INTO image (id, hash, url) VALUES (?, ?, ?)")
+            .bind(id).bind(hash).bind(url).execute(&*DB).await
     }
 
     pub async fn get_by_hash(hash: &str) -> Result<Option<Self>> {
-        sqlx::query_as!(Self, r#"SELECT id as "id: u32", hash, url FROM image WHERE hash = ?"#, hash)
-            .fetch_optional(&*DB).await
+        sqlx::query_as::<_, Self>("SELECT id, hash, url FROM image WHERE hash = ?")
+            .bind(hash).fetch_optional(&*DB).await
     }
 
     pub async fn get_by_gallery_id(gallery_id: i32) -> Result<Vec<Self>> {
-        sqlx::query_as!(Self, 
-            r#"SELECT image.id as "id: u32", image.hash as hash, image.url as url
+        sqlx::query_as::<_, Self>(
+            r#"SELECT image.id, image.hash, image.url
             FROM image JOIN page ON page.image_id = image.id
-            WHERE page.gallery_id = ? ORDER BY page.page"#,
-            gallery_id,
-        ).fetch_all(&*DB).await
+            WHERE page.gallery_id = ? ORDER BY page.page"#
+        ).bind(gallery_id).fetch_all(&*DB).await
     }
 
     pub fn url(&self) -> String {
         if self.url.starts_with("/file/") { format!("https://telegra.ph{}", self.url) } else { self.url.clone() }
     }
 
-    // 🔥【第一階段新增】統計圖片 (已修改為普通函數，並修正表名為 image)
     pub async fn count() -> Result<i32> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM image")
-            .fetch_one(&*DB).await?;
-        Ok(count as i32)
+        let res: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM image").fetch_one(&*DB).await?;
+        Ok(res.0 as i32)
     }
 }
 
 impl PageEntity {
     pub async fn create(gallery_id: i32, page: i32, image_id: u32) -> Result<SqliteQueryResult> {
-        sqlx::query!("INSERT OR IGNORE INTO page (gallery_id, page, image_id) VALUES (?, ?, ?)", gallery_id, page, image_id)
-            .execute(&*DB).await
+        sqlx::query("INSERT OR IGNORE INTO page (gallery_id, page, image_id) VALUES (?, ?, ?)")
+            .bind(gallery_id).bind(page).bind(image_id).execute(&*DB).await
     }
     pub async fn count(gallery_id: i32) -> Result<i32> {
-        sqlx::query_scalar!("SELECT COUNT(*) FROM page WHERE gallery_id = ?", gallery_id).fetch_one(&*DB).await
+        let res: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM page WHERE gallery_id = ?").bind(gallery_id).fetch_one(&*DB).await?;
+        Ok(res.0 as i32)
     }
 }
