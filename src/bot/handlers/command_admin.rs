@@ -14,6 +14,8 @@ use crate::ehentai::EhGalleryUrl;
 use crate::uploader::ExloliUploader;
 use crate::{reply_to, try_with_reply};
 
+const INDENT: &str = "\u{2063}\u{3000}";
+
 pub fn admin_command_handler() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDescription>
 {
     teloxide::filter_command::<AdminCommand, _>()
@@ -26,7 +28,7 @@ pub fn admin_command_handler() -> Handler<'static, DependencyMap, Result<()>, Dp
 
 async fn cmd_recheck(bot: Bot, msg: Message, uploader: ExloliUploader) -> Result<()> {
     info!("{}: /recheck", msg.from().unwrap().id);
-    reply_to!(bot, msg, "🔄 正在重新檢測並修復所有畫廊預覽鏈接...").await?;
+    reply_to!(bot, msg, format!("<b>🔄 正在重新檢測</b>\n{i}正在修復所有失效的預覽鏈接...", i = INDENT)).await?;
     try_with_reply!(bot, msg, uploader.recheck(vec![]).await);
     Ok(())
 }
@@ -38,18 +40,14 @@ async fn cmd_upload(
     url_text: String,
 ) -> Result<()> {
     if url_text.trim().is_empty() {
-        reply_to!(
-            bot, 
-            msg, 
-            "<b>管理員上傳指令：</b>\n強制下載並上傳新畫廊。\n\n<b>用法：</b>\n<code>/upload [E站URL]</code>"
-        ).await?;
+        reply_to!(bot, msg, format!("<b>👮‍♂️ 管理員上傳提示</b>\n{i}用法：<code>/upload [E站URL]</code>", i = INDENT)).await?;
         return Ok(());
     }
 
     let gallery = match EhGalleryUrl::from_str(&url_text) {
         Ok(v) => v,
         Err(_) => {
-            reply_to!(bot, msg, "❌ 無效的 URL").await?;
+            reply_to!(bot, msg, format!("<b>🚫 錯誤</b>\n{i}無效的畫廊鏈接。", i = INDENT)).await?;
             return Ok(());
         }
     };
@@ -60,36 +58,53 @@ async fn cmd_upload(
 }
 
 async fn cmd_delete(bot: Bot, msg: Message, command: AdminCommand) -> Result<()> {
-    // 這裡我們記錄原始指令，虽然 command 参数是枚举，但通过日志可以区分上下文
-    let cmd_name = match command {
-        AdminCommand::Delete => "/delete (軟刪除)",
-        AdminCommand::Erase => "/erase (硬刪除)",
-        _ => "/unknown",
-    };
+    let cmd_name = if matches!(command, AdminCommand::Delete) { "/delete" } else { "/erase" };
     info!("{}: {}", msg.from().unwrap().id, cmd_name);
 
-    let reply_to = msg.reply_to_message().context("請回復一條畫廊消息來執行刪除")?;
+    // 🔥 修正：不再直接用 ? 報錯，而是給用戶發送消息引導，避免終端日誌 ERROR
+    let reply_to = match msg.reply_to_message() {
+        Some(r) => r,
+        None => {
+            reply_to!(bot, msg, format!("<b>⚠️ 操作無效</b>\n{i}請「回覆」一條由本頻道轉發的消息來執行刪除。", i = INDENT)).await?;
+            return Ok(());
+        }
+    };
 
-    // 嘗試獲取轉發來源
-    let channel = reply_to.forward_from_chat().context("該消息不是來自頻道的轉發，無法定位畫廊")?;
-    let channel_msg = reply_to.forward_from_message_id().context("無法獲取原始消息 ID")?;
+    let channel = match reply_to.forward_from_chat() {
+        Some(c) => c,
+        None => {
+            reply_to!(bot, msg, format!("<b>⚠️ 操作無效</b>\n{i}該消息不是頻道轉發，無法定位畫廊。", i = INDENT)).await?;
+            return Ok(());
+        }
+    };
 
-    let msg_entity = MessageEntity::get(channel_msg).await?.context("數據庫中找不到該消息記錄")?;
+    let channel_msg = match reply_to.forward_from_message_id() {
+        Some(id) => id,
+        None => {
+            reply_to!(bot, msg, format!("<b>⚠️ 錯誤</b>\n{i}無法讀取轉發的消息 ID。", i = INDENT)).await?;
+            return Ok(());
+        }
+    };
 
-    // 執行 Telegram 側刪除
-    let _ = bot.delete_message(reply_to.chat.id, reply_to.id).await; // 刪除群組裡的轉發
-    let _ = bot.delete_message(channel.id, MessageId(msg_entity.id)).await; // 刪除頻道裡的原始消息
+    let msg_entity = match MessageEntity::get(channel_msg).await? {
+        Some(m) => m,
+        None => {
+            reply_to!(bot, msg, format!("<b>⚠️ 數據缺失</b>\n{i}數據庫中找不到該消息的記錄。", i = INDENT)).await?;
+            return Ok(());
+        }
+    };
 
-    // 執行數據庫側刪除
+    // 執行刪除
+    let _ = bot.delete_message(reply_to.chat.id, reply_to.id).await; 
+    let _ = bot.delete_message(channel.id, MessageId(msg_entity.id)).await; 
+
     if matches!(command, AdminCommand::Delete) {
-        // 軟刪除：標記為 deleted
         GalleryEntity::update_deleted(msg_entity.gallery_id, true).await?;
-        reply_to!(bot, msg, "✅ <b>已軟刪除</b>\n畫廊記錄保留，標記為已刪除。").await?;
+        reply_to!(bot, msg, format!("<b>✅ 已執行軟刪除</b>\n{i}畫廊 ID: <code>{}</code> 已標記刪除。", msg_entity.gallery_id, i = INDENT)).await?;
     } else {
-        // 硬刪除：徹底移除
         GalleryEntity::delete(msg_entity.gallery_id).await?;
         MessageEntity::delete(channel_msg).await?;
-        reply_to!(bot, msg, "🚫 <b>已硬刪除 (Erase)</b>\n畫廊記錄已徹底抹除，下次掃描將重新上傳。").await?;
+        reply_to!(bot, msg, format!("<b>💥 已執行硬刪除 (Erase)</b>\n{i}記錄已從庫中徹底抹除。", i = INDENT)).await?;
     }
 
     Ok(())
