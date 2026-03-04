@@ -13,6 +13,7 @@ use crate::config::Config;
 use crate::database::{ChallengeHistory, GalleryEntity, PollEntity, VoteEntity, ImageEntity};
 use crate::ehentai::GalleryInfo;
 use crate::tags::EhTagTransDB;
+use teloxide::types::ParseMode; 
 
 pub fn callback_query_handler() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDescription>
 {
@@ -171,10 +172,12 @@ async fn callback_random_another(
             if let Some(img) = images.first() {
                 bot.send_photo(message.chat.id, InputFile::url(img.url().parse()?))
                     .caption(&text)
+                    .parse_mode(ParseMode::Html) // 增加 parse_mode
                     .reply_markup(keyboard)
                     .await?;
             } else {
                 bot.send_message(message.chat.id, &text)
+                    .parse_mode(ParseMode::Html) // 增加 parse_mode
                     .reply_markup(keyboard)
                     .await?;
             }
