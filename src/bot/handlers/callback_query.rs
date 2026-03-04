@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use teloxide::dispatching::DpHandlerDescription;
 use teloxide::dptree::case;
 use teloxide::prelude::*;
-use teloxide::utils::html::{link, user_mention};
 use tracing::info;
 
 use super::utils::gallery_preview_url;
@@ -14,7 +13,7 @@ use crate::database::{ChallengeHistory, GalleryEntity, PollEntity, VoteEntity, I
 use crate::ehentai::GalleryInfo;
 use crate::tags::EhTagTransDB;
 use teloxide::types::{ParseMode, InputFile};
-use teloxide::utils::html::{escape, link, user_mention}; 
+use teloxide::utils::html::{escape, link, user_mention};
 
 pub fn callback_query_handler() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDescription>
 {
