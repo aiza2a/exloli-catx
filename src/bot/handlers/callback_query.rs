@@ -85,12 +85,25 @@ async fn callback_vote_for_poll(
     VoteEntity::create(query.from.id.0, poll, option).await?;
     let votes = PollEntity::get_vote(poll).await?;
 
-    // 投票没有变化时不要更新，不然会报错 MessageNotModified
     if old_votes != votes {
         let score = PollEntity::update_score(poll).await?;
         info!("更新分数：{} = {}", poll, score);
         let sum = votes.iter().sum::<i32>();
-        let keyboard = poll_keyboard(poll, &votes);
+        
+        // 🌟 透過 Telegram 回覆鏈追溯當前的精確畫廊 ID，確保收藏按鈕不丟失
+        let mut gallery_id = poll as i32; // 默認降級
+        if let Some(message) = &query.message {
+            if let Some(reply_to) = message.reply_to_message() {
+                if let Some(fwd_msg_id) = reply_to.forward_from_message_id() {
+                    if let Ok(Some(g)) = GalleryEntity::get_by_msg(fwd_msg_id).await {
+                        gallery_id = g.id;
+                    }
+                }
+            }
+        }
+
+        // 🌟 生成帶有收藏按鈕的新鍵盤
+        let keyboard = poll_keyboard(poll, &votes, gallery_id); 
         let text = format!("当前 {} 人投票，{:.2} 分", sum, score * 100.);
 
         if let Some(message) = query.message {
