@@ -148,6 +148,7 @@ async fn callback_change_page(
 }
 
 // 同樣注入 trans: EhTagTransDB
+// 同樣注入 trans: EhTagTransDB
 async fn callback_random_another(
     bot: Bot,
     query: CallbackQuery,
@@ -181,6 +182,7 @@ async fn callback_random_another(
             let preview = gallery_preview_url(cfg.telegram.channel_id.clone(), gallery.id).await?;
             let url = gallery.url().url();
             
+            // 🌟 這是真正的 text 構建，已經去掉了那個報錯的佔位符
             let text = format!(
                 "🎲 <b>隨機抽取結果</b>\n\n<b>{}</b>\n\n📄 <b>預覽：</b>{}\n🔗 <b>地址：</b>{}\n⭐️ <b>評分：</b>{:.2}（{:.2}%）",
                 escape(gallery.title_jp.as_ref().unwrap_or(&gallery.title)),
@@ -190,15 +192,14 @@ async fn callback_random_another(
                 rank
             );
 
-            let text = format!( /* ... */ );
-            
+            // 🌟 動態獲取人數並把收藏按鈕加到鍵盤裡
             let fav_count = crate::database::FavoriteEntity::count_by_gallery(gallery.id).await.unwrap_or(0);
             let fav_text = if fav_count > 0 { format!("⭐ 收藏 ({})", fav_count) } else { "⭐ 收藏".to_string() };
             let fav_btn = teloxide::types::InlineKeyboardButton::callback(fav_text, CallbackData::FavToggle(gallery.id).pack());
 
             let keyboard = teloxide::types::InlineKeyboardMarkup::new(vec![vec![
                 teloxide::types::InlineKeyboardButton::callback("🎲 再來一個本子", CallbackData::RandomAnother(tags_str).pack()),
-                fav_btn
+                fav_btn // 🌟 與再來一本並排顯示
             ]]);
 
             let images = ImageEntity::get_by_gallery_id(gallery.id).await?;
