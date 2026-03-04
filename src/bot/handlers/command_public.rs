@@ -255,13 +255,13 @@ async fn cmd_query(bot: Bot, msg: Message, cfg: Config, url_text: String) -> Res
     Ok(())
 }
 
-async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result<()> {
+// 注意這裡參數多加了一個 trans: EhTagTransDB
+async fn cmd_random(bot: Bot, msg: Message, cfg: Config, trans: EhTagTransDB, args: String) -> Result<()> {
     info!("{}: /random {}", msg.from().unwrap().id, args);
     
     let mut parts: Vec<&str> = args.split_whitespace().collect();
     let mut count = 1;
     
-    // 檢查最後一個參數是否為數字
     if let Some(last) = parts.last() {
         if let Ok(c) = last.parse::<usize>() {
             count = c;
@@ -269,15 +269,18 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result
         }
     }
     
-    // 強制限制數量
     count = count.clamp(1, 10);
     let tags: Vec<String> = parts.into_iter().map(|s| s.to_string()).collect();
 
+    // 🌟核心：對每個用戶輸入的標籤，生成 [中文詞, 英文翻譯1, 英文翻譯2...] 的陣列
+    let tags_conditions: Vec<Vec<String>> = tags.iter().map(|t| trans.search_raw_tags(t)).collect();
+
     for i in 0..count {
-        let gallery = if tags.is_empty() {
+        let gallery = if tags_conditions.is_empty() {
             GalleryEntity::get_random().await?
         } else {
-            GalleryEntity::get_random_with_tags(&tags).await?
+            // 傳入強化版的中英混合條件
+            GalleryEntity::get_random_with_tags(&tags_conditions).await?
         };
 
         match gallery {
@@ -301,8 +304,6 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result
                     rank
                 );
 
-                // 只在最後一條追加互動按鈕
-                // 修复 1：安全的字符截断
                 let keyboard = if i == count - 1 {
                     let mut tags_str = tags.join(" ");
                     if tags_str.len() > 40 { 
@@ -317,14 +318,12 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result
 
                 let images = ImageEntity::get_by_gallery_id(gallery.id).await?;
                 if let Some(img) = images.first() {
-                    // 修复 2：增加 parse_mode
                     let mut req = bot.send_photo(msg.chat.id, InputFile::url(img.url().parse()?))
                                      .caption(&text)
                                      .parse_mode(ParseMode::Html); 
                     if let Some(kb) = keyboard { req = req.reply_markup(kb); }
                     req.await?;
                 } else {
-                    // 修复 2：增加 parse_mode
                     let mut req = bot.send_message(msg.chat.id, &text)
                                      .parse_mode(ParseMode::Html);
                     if let Some(kb) = keyboard { req = req.reply_markup(kb); }
@@ -346,7 +345,6 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result
     }
     Ok(())
 }
-
 async fn cmd_stats(bot: Bot, msg: Message) -> Result<()> {
     info!("{}: /stats", msg.from().unwrap().id);
     
