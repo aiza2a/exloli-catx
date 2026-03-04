@@ -125,21 +125,26 @@ async fn callback_change_page(
     Ok(())
 }
 
+// 同樣注入 trans: EhTagTransDB
 async fn callback_random_another(
     bot: Bot,
     query: CallbackQuery,
     cfg: Config,
+    trans: EhTagTransDB, 
     tags_str: String,
 ) -> Result<()> {
     let message = query.message.context("消息过旧")?;
     info!("{}: <- random another {}", query.from.id, tags_str);
 
     let tags: Vec<String> = tags_str.split_whitespace().map(|s| s.to_string()).collect();
+    
+    // 🌟核心：獲取翻譯陣列
+    let tags_conditions: Vec<Vec<String>> = tags.iter().map(|t| trans.search_raw_tags(t)).collect();
 
-    let gallery = if tags.is_empty() {
+    let gallery = if tags_conditions.is_empty() {
         GalleryEntity::get_random().await?
     } else {
-        GalleryEntity::get_random_with_tags(&tags).await?
+        GalleryEntity::get_random_with_tags(&tags_conditions).await?
     };
 
     match gallery {
@@ -167,17 +172,16 @@ async fn callback_random_another(
                 teloxide::types::InlineKeyboardButton::callback("🎲 再來一個本子", CallbackData::RandomAnother(tags_str).pack()),
             ]]);
 
-            // 🌟核心修復：發送帶封面的圖片消息
             let images = ImageEntity::get_by_gallery_id(gallery.id).await?;
             if let Some(img) = images.first() {
                 bot.send_photo(message.chat.id, InputFile::url(img.url().parse()?))
                     .caption(&text)
-                    .parse_mode(ParseMode::Html) // 增加 parse_mode
+                    .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
                     .await?;
             } else {
                 bot.send_message(message.chat.id, &text)
-                    .parse_mode(ParseMode::Html) // 增加 parse_mode
+                    .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
                     .await?;
             }
