@@ -22,7 +22,7 @@ use crate::bot::utils::CallbackData;
 use crate::bot::Bot;
 use crate::config::Config;
 use crate::database::{
-    GalleryEntity, ImageEntity, MessageEntity, PageEntity, PollEntity, TelegraphEntity,
+    GalleryEntity, ImageEntity, MessageEntity, PageEntity, PollEntity, TelegraphEntity, FavoriteEntity
 };
 use crate::ehentai::{EhClient, EhGallery, EhGalleryUrl, GalleryInfo};
 use crate::imgbb::ImgBBUploader;
@@ -126,8 +126,12 @@ impl ExloliUploader {
             .await?;
 
         // 🌟 構建收藏鍵盤
+        let target_id = gallery_data.url.id(); // try_update 裡是 current_gallery_data.url.id()，republish 裡是 gallery.id
+        
+        let fav_count = FavoriteEntity::count_by_gallery(target_id).await.unwrap_or(0);
+        let fav_text = if fav_count > 0 { format!("⭐ 收藏 ({})", fav_count) } else { "⭐ 收藏".to_string() };
         let fav_kb = InlineKeyboardMarkup::new(vec![vec![
-            InlineKeyboardButton::callback("⭐ 收藏", CallbackData::FavToggle(gallery_data.url.id()).pack())
+            InlineKeyboardButton::callback(fav_text, CallbackData::FavToggle(target_id).pack())
         ]]);
 
         let msg = if let Some(parent) = &gallery_data.parent {
@@ -244,8 +248,12 @@ impl ExloliUploader {
             .await?;
 
         // 🌟 1. 新增：為重新發布的消息也構建收藏鍵盤
+        let target_id = gallery_data.url.id(); // try_update 裡是 current_gallery_data.url.id()，republish 裡是 gallery.id
+        
+        let fav_count = FavoriteEntity::count_by_gallery(target_id).await.unwrap_or(0);
+        let fav_text = if fav_count > 0 { format!("⭐ 收藏 ({})", fav_count) } else { "⭐ 收藏".to_string() };
         let fav_kb = InlineKeyboardMarkup::new(vec![vec![
-            InlineKeyboardButton::callback("⭐ 收藏", CallbackData::FavToggle(gallery.id).pack())
+            InlineKeyboardButton::callback(fav_text, CallbackData::FavToggle(target_id).pack())
         ]]);
             
         let edit_res = self.bot
