@@ -30,7 +30,7 @@ pub async fn custom_pool_sender(bot: Bot, message: Message) -> Result<()> {
     // 🌟 新增查詢人數並傳給 poll_keyboard
     let fav_count = FavoriteEntity::count_by_gallery(gallery.id).await.unwrap_or(0);
     // 🌟 修改點：在這裡傳入 gallery.id
-    let markup = utils::poll_keyboard(poll_id, &votes, gallery.id);
+    let markup = utils::poll_keyboard(poll_id, &votes, gallery.id, fav_count);
 
     let score = PollEntity::update_score(poll_id).await? * 100.;
     let sum = votes.iter().sum::<i32>();
