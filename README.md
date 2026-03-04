@@ -61,3 +61,40 @@ wget [https://github.com/EhTagTranslation/Database/releases/download/v6.7880.1/d
 
 # 创建 SQLite 数据文件存储占位符
 touch db.sqlite db.sqlite-shm db.sqlite-wal
+
+完善 config.toml 配置参数后，启动服务：
+```bash
+docker-compose up -d
+
+方式二：通过 Cargo 源码编译
+
+配置 Rust 工具链并构建：
+Bash
+
+# 部署 Rust 编译环境
+curl --proto '=https' --tlsv1.2 -sSf [https://sh.rustup.rs](https://sh.rustup.rs) | sh
+source $HOME/.cargo/env
+
+# 编译并安装系统包
+cargo install --git [https://github.com/lolishinshi/exloli-next](https://github.com/lolishinshi/exloli-next)
+
+# 测试环境变量配置与命令行输出
+exloli-next --help
+
+配置文件指引
+
+核心服务依赖于运行目录下的 config.toml。请参照以下模块进行初始化配置：
+
+    Telegram 凭据：正确填写机器人 Token 以及接收推送的目标 Channel ID。
+
+    ImgBB 图床：配置至少一个或多个有效的 API Keys (系统内置多 Key 轮询上传机制，可分散请求压力)。
+
+    E-Hentai 认证：提供含有效登录状态的 Cookie 键值 (igneous, ipb_member_id, ipb_pass_hash)。
+
+    Telegraph：提供具备发布文章权限的 Access Token 密钥。
+
+数据迁移
+
+若由旧版 exloli 系统进行升级迁移，直接保留原持久化存储的 db.sqlite 并在新环境下挂载运行即可。系统启动时将自动识别数据结构差异并执行底层重构映射 (Migrations)。
+警告：建议在任何迁移操作前，对原 SQLite 文件及其日志副本进行完整备份。
+
