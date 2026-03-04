@@ -9,9 +9,8 @@ use teloxide::types::InputFile;
 use teloxide::utils::command::BotCommands;
 use teloxide::utils::html::escape;
 use tracing::info;
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-use crate::bot::utils::CallbackData;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
+use crate::bot::utils::CallbackData;
 
 use crate::bot::command::{AdminCommand, PublicCommand};
 use crate::bot::handlers::{
