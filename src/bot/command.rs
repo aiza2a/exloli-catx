@@ -32,6 +32,8 @@ pub enum PublicCommand {
     Help,
     #[command(description = "隨機抽取一本本子 (用法: /random [標籤] [數量(最大为10)])")]
     Random(String),
+    #[command(description = "查看您的個人收藏夾")]
+    Fav,
     #[command(description = "查看 Bot 數據統計")]
     Stats,
 }
