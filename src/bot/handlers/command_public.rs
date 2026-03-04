@@ -306,20 +306,23 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, trans: EhTagTransDB, ar
                 );
 
                 // 🌟 為抽出來的每本本子加上收藏按鈕
-                let fav_btn = InlineKeyboardButton::callback("⭐ 收藏", CallbackData::FavToggle(gallery.id).pack());
+                // 🌟 動態獲取人數並生成按鈕
+                let fav_count = crate::database::FavoriteEntity::count_by_gallery(gallery.id).await.unwrap_or(0);
+                let fav_text = if fav_count > 0 { format!("⭐ 收藏 ({})", fav_count) } else { "⭐ 收藏".to_string() };
+                let fav_btn = teloxide::types::InlineKeyboardButton::callback(fav_text, CallbackData::FavToggle(gallery.id).pack());
+
                 let mut keyboard_rows = vec![];
-                
                 if i == count - 1 {
                     let mut tags_str = tags.join(" ");
                     if tags_str.len() > 40 { tags_str = tags_str.chars().take(12).collect(); }
                     keyboard_rows.push(vec![
-                        InlineKeyboardButton::callback("🎲 再來一個本子", CallbackData::RandomAnother(tags_str).pack()),
-                        fav_btn // 與再來一本並排
+                        teloxide::types::InlineKeyboardButton::callback("🎲 再來一個本子", CallbackData::RandomAnother(tags_str).pack()),
+                        fav_btn // 🌟 與再來一本並排
                     ]);
                 } else {
-                    keyboard_rows.push(vec![fav_btn]); // 單獨的收藏按鈕
+                    keyboard_rows.push(vec![fav_btn]);
                 }
-                let keyboard = Some(InlineKeyboardMarkup::new(keyboard_rows));
+                let keyboard = Some(teloxide::types::InlineKeyboardMarkup::new(keyboard_rows));
 
                 let images = ImageEntity::get_by_gallery_id(gallery.id).await?;
                 if let Some(img) = images.first() {
