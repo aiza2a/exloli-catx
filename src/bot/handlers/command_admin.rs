@@ -28,8 +28,48 @@ pub fn admin_command_handler() -> Handler<'static, DependencyMap, Result<()>, Dp
 
 async fn cmd_recheck(bot: Bot, msg: Message, uploader: ExloliUploader) -> Result<()> {
     info!("{}: /recheck", msg.from().unwrap().id);
-    reply_to!(bot, msg, format!("<b>🔄 正在重新檢測</b>\n{i}正在修復所有失效的預覽鏈接...", i = INDENT)).await?;
-    try_with_reply!(bot, msg, uploader.recheck(vec![]).await);
+
+    // 1. 獲取回覆的消息
+    let reply_to = match msg.reply_to_message() {
+        Some(r) => r,
+        None => {
+            reply_to!(bot, msg, format!("<b>⚠️ 操作無效</b>\n{i}請「回覆」一條由本頻道轉發的消息來執行單獨檢測。", i = INDENT)).await?;
+            return Ok(());
+        }
+    };
+
+    // 2. 確保是頻道轉發的消息並獲取原消息 ID
+    let channel_msg = match reply_to.forward_from_message_id() {
+        Some(id) => id,
+        None => {
+            reply_to!(bot, msg, format!("<b>⚠️ 錯誤</b>\n{i}該消息不是頻道轉發，無法定位畫廊。", i = INDENT)).await?;
+            return Ok(());
+        }
+    };
+
+    // 3. 查詢 Message 數據庫記錄
+    let msg_entity = match MessageEntity::get(channel_msg).await? {
+        Some(m) => m,
+        None => {
+            reply_to!(bot, msg, format!("<b>⚠️ 數據缺失</b>\n{i}數據庫中找不到該消息的記錄。", i = INDENT)).await?;
+            return Ok(());
+        }
+    };
+
+    // 4. 查詢 Gallery 數據庫記錄
+    let gl_entity = match GalleryEntity::get(msg_entity.gallery_id).await? {
+        Some(g) => g,
+        None => {
+            reply_to!(bot, msg, format!("<b>⚠️ 數據缺失</b>\n{i}找不到對應的畫廊記錄。", i = INDENT)).await?;
+            return Ok(());
+        }
+    };
+
+    // 5. 針對這單個畫廊執行 recheck
+    reply_to!(bot, msg, format!("<b>🔄 正在重新檢測</b>\n{i}畫廊 ID: <code>{}</code>", gl_entity.id, i = INDENT)).await?;
+    
+    // 這裡把 gl_entity 裝進 vec! 裡傳過去，這樣就只會檢測這一個了！
+    try_with_reply!(bot, msg, uploader.recheck(vec![gl_entity]).await);
     Ok(())
 }
 
