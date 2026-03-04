@@ -16,6 +16,8 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use teloxide::utils::html::escape;
+use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+use crate::bot::utils::CallbackData;
 
 use crate::bot::Bot;
 use crate::config::Config;
@@ -123,23 +125,31 @@ impl ExloliUploader {
             .create_message_text(&gallery_data, &article.url)
             .await?;
 
+        // 🌟 構建收藏鍵盤
+        let fav_kb = InlineKeyboardMarkup::new(vec![vec![
+            InlineKeyboardButton::callback("⭐ 收藏", CallbackData::FavToggle(gallery_data.url.id()).pack())
+        ]]);
+
         let msg = if let Some(parent) = &gallery_data.parent {
             if let Some(pmsg) = MessageEntity::get_by_gallery(parent.id()).await? {
                 self.bot
                     .send_message(self.config.telegram.channel_id.clone(), text)
                     .reply_to_message_id(MessageId(pmsg.id))
-                    .parse_mode(teloxide::types::ParseMode::Html) // 🌟修復：補上解析
+                    .reply_markup(fav_kb.clone()) // 🌟 新增
+                    .parse_mode(teloxide::types::ParseMode::Html)
                     .await?
             } else {
                 self.bot
                     .send_message(self.config.telegram.channel_id.clone(), text)
-                    .parse_mode(teloxide::types::ParseMode::Html) // 🌟修復：補上解析
+                    .reply_markup(fav_kb.clone()) // 🌟 新增
+                    .parse_mode(teloxide::types::ParseMode::Html)
                     .await?
             }
         } else {
             self.bot
                 .send_message(self.config.telegram.channel_id.clone(), text)
-                .parse_mode(teloxide::types::ParseMode::Html) // 🌟修復：補上解析
+                .reply_markup(fav_kb) // 🌟 新增
+                .parse_mode(teloxide::types::ParseMode::Html)
                 .await?
         };
         
