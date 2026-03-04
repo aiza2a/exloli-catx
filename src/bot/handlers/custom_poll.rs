@@ -4,7 +4,7 @@ use tracing::info;
 
 use crate::bot::handlers::utils;
 use crate::bot::Bot;
-use crate::database::{GalleryEntity, PollEntity};
+use crate::database::{GalleryEntity, PollEntity, FavoriteEntity};
 use crate::reply_to;
 
 pub async fn custom_pool_sender(bot: Bot, message: Message) -> Result<()> {
@@ -27,6 +27,8 @@ pub async fn custom_pool_sender(bot: Bot, message: Message) -> Result<()> {
     PollEntity::create(poll_id, gallery.id).await?;
 
     let votes = PollEntity::get_vote(poll_id).await?;
+    // 🌟 新增查詢人數並傳給 poll_keyboard
+    let fav_count = FavoriteEntity::count_by_gallery(gallery.id).await.unwrap_or(0);
     // 🌟 修改點：在這裡傳入 gallery.id
     let markup = utils::poll_keyboard(poll_id, &votes, gallery.id);
 
