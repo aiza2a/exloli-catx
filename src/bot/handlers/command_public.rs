@@ -261,15 +261,15 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result
     let mut parts: Vec<&str> = args.split_whitespace().collect();
     let mut count = 1;
     
-    // 檢查最後一個參數是否為數字（推送數量）
+    // 檢查最後一個參數是否為數字
     if let Some(last) = parts.last() {
         if let Ok(c) = last.parse::<usize>() {
             count = c;
-            parts.pop(); // 彈出數字，剩下的就是標籤
+            parts.pop(); 
         }
     }
     
-    // 強制限制：最小 1 篇，最大 10 篇
+    // 強制限制數量
     count = count.clamp(1, 10);
     let tags: Vec<String> = parts.into_iter().map(|s| s.to_string()).collect();
 
@@ -289,51 +289,55 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result
                     None => 0.0,
                 };
                 
-                // Telegram 会自动通过这裡的链接产生富文本预览图 (封面图)
                 let preview = gallery_preview_url(cfg.telegram.channel_id.clone(), gallery.id).await?;
                 let url = gallery.url().url();
                 
                 let text = format!(
                     "🎲 <b>隨機抽取結果</b>\n\n<b>{}</b>\n\n📄 <b>預覽：</b>{}\n🔗 <b>地址：</b>{}\n⭐️ <b>評分：</b>{:.2}（{:.2}%）",
-                    gallery.title_jp.unwrap_or(gallery.title),
+                    gallery.title_jp.as_ref().unwrap_or(&gallery.title),
                     preview,
                     url,
                     score,
                     rank
                 );
 
-                let mut msg_req = bot.send_message(msg.chat.id, text);
-
-                // 只有最後一條消息添加「再來一個本子」按鈕，避免刷屏時滿屏按鈕
-                if i == count - 1 {
+                // 只在最後一條追加互動按鈕
+                let keyboard = if i == count - 1 {
                     let mut tags_str = tags.join(" ");
-                    if tags_str.len() > 40 {
-                        tags_str = tags_str[..40].to_string(); // 防止超出 Telegram 內部按鈕資料 64 字节的限制
-                    }
-                    let keyboard = InlineKeyboardMarkup::new(vec![vec![
+                    if tags_str.len() > 40 { tags_str = tags_str[..40].to_string(); }
+                    Some(InlineKeyboardMarkup::new(vec![vec![
                         InlineKeyboardButton::callback("🎲 再來一個本子", CallbackData::RandomAnother(tags_str).pack()),
-                    ]]);
-                    msg_req = msg_req.reply_markup(keyboard);
-                }
+                    ]]))
+                } else {
+                    None
+                };
 
-                msg_req.await?;
+                // 🌟核心修復：獲取畫廊的圖片列表，拿出第一張作為封面發送
+                let images = ImageEntity::get_by_gallery_id(gallery.id).await?;
+                if let Some(img) = images.first() {
+                    // 使用 send_photo 發送真正的圖文消息
+                    let mut req = bot.send_photo(msg.chat.id, InputFile::url(img.url().parse()?)).caption(&text);
+                    if let Some(kb) = keyboard { req = req.reply_markup(kb); }
+                    req.await?;
+                } else {
+                    // 如果極個別畫廊沒有圖片（降級處理）
+                    let mut req = bot.send_message(msg.chat.id, &text);
+                    if let Some(kb) = keyboard { req = req.reply_markup(kb); }
+                    req.await?;
+                }
             }
             None => {
                 let tag_str = tags.join(", ");
                 if tags.is_empty() {
                     reply_to!(bot, msg, "資料庫是空的，先去上傳幾本吧！").await?;
                 } else {
-                    // 若標籤不存在則發送你要求的提示消息
-                    reply_to!(bot, msg, format!("❌ <b>未找到匹配的本子</b>\n沒有找到包含標籤 <code>{}</code> 的畫廊，請更換關鍵詞再試一次。", tag_str)).await?;
+                    reply_to!(bot, msg, format!("❌ <b>未找到匹配的本子</b>\n沒有找到包含標籤或關鍵詞 <code>{}</code> 的畫廊，請更換關鍵詞再試一次。", tag_str)).await?;
                 }
-                break; // 如果沒本子了就直接中斷循環
+                break;
             }
         }
         
-        // 批量推送時加入微小延遲，防止觸發 Telegram 刷屏風控
-        if count > 1 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-        }
+        if count > 1 { tokio::time::sleep(tokio::time::Duration::from_millis(300)).await; }
     }
     Ok(())
 }
