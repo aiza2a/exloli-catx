@@ -247,26 +247,28 @@ async fn callback_fav_toggle(bot: Bot, query: CallbackQuery, id: i32) -> Result<
             
             for row in &mut new_inline_keyboard {
                 for button in row {
-                    if button.kind.is_callback_data().unwrap_or(false) && button.kind.pack().unwrap_or("") == target_pack {
-                        
-                        let old_text = button.text.clone();
-                        // 🌟 核心：如果是私聊，字會變成"✅ 已收藏"；如果是群聊/頻道，維持原字不變！
-                        let base_text = if message.chat.is_private() {
-                            if added { "✅ 已收藏" } else { "⭐ 收藏" }
-                        } else {
-                            if old_text.starts_with("⭐ 收藏本檔案") { "⭐ 收藏本檔案" } 
-                            else { "⭐ 收藏" }
-                        };
+                    // 🌟 修复：使用 if let 模式匹配解构 Enum，安全提取内部的字符串
+                    if let teloxide::types::InlineKeyboardButtonKind::CallbackData(ref data) = button.kind {
+                        if data == &target_pack {
+                            let old_text = button.text.clone();
+                            // 核心：如果是私聊，字会变成"✅ 已收藏"；如果是群聊/频道，维持原字不变！
+                            let base_text = if message.chat.is_private() {
+                                if added { "✅ 已收藏" } else { "⭐ 收藏" }
+                            } else {
+                                if old_text.starts_with("⭐ 收藏本檔案") { "⭐ 收藏本檔案" } 
+                                else { "⭐ 收藏" }
+                            };
 
-                        // 🌟 拼接人數
-                        button.text = if fav_count > 0 {
-                            format!("{} ({})", base_text, fav_count)
-                        } else {
-                            base_text.to_string()
-                        };
+                            // 拼接人数
+                            button.text = if fav_count > 0 {
+                                format!("{} ({})", base_text, fav_count)
+                            } else {
+                                base_text.to_string()
+                            };
 
-                        found = true;
-                        break;
+                            found = true;
+                            break;
+                        }
                     }
                 }
                 if found { break; }
