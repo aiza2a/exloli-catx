@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::database::{ChallengeHistory, GalleryEntity, PollEntity, VoteEntity, ImageEntity};
 use crate::ehentai::GalleryInfo;
 use crate::tags::EhTagTransDB;
-use teloxide::types::ParseMode; 
+use teloxide::types::{ParseMode, InputFile};
 
 pub fn callback_query_handler() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDescription>
 {
