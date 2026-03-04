@@ -127,15 +127,18 @@ impl ExloliUploader {
                 self.bot
                     .send_message(self.config.telegram.channel_id.clone(), text)
                     .reply_to_message_id(MessageId(pmsg.id))
+                    .parse_mode(teloxide::types::ParseMode::Html) // 🌟修復：補上解析
                     .await?
             } else {
                 self.bot
                     .send_message(self.config.telegram.channel_id.clone(), text)
+                    .parse_mode(teloxide::types::ParseMode::Html) // 🌟修復：補上解析
                     .await?
             }
         } else {
             self.bot
                 .send_message(self.config.telegram.channel_id.clone(), text)
+                .parse_mode(teloxide::types::ParseMode::Html) // 🌟修復：補上解析
                 .await?
         };
         
@@ -186,13 +189,23 @@ impl ExloliUploader {
                 .create_message_text(&current_gallery_data, &telegraph.url)
                 .await?;
                 
-            self.bot
+            // 🌟修復：加上 HTML 解析，並優雅處理未修改報錯
+            let edit_res = self.bot
                 .edit_message_text(
                     self.config.telegram.channel_id.clone(),
                     MessageId(message.id),
                     text,
                 )
-                .await?;
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .await;
+
+            if let Err(e) = edit_res {
+                if e.to_string().contains("message is not modified") {
+                    debug!("畫廊 {} 內容未實質改變，忽略更新報錯", current_gallery_data.url.id());
+                } else {
+                    return Err(e.into());
+                }
+            }
         }
 
         GalleryEntity::create(&current_gallery_data).await?;
@@ -207,7 +220,6 @@ impl ExloliUploader {
         let eh_gallery_url = gallery.url();
         let gallery_data_for_catbox = self.ehentai.get_gallery(&eh_gallery_url).await?;
         
-        // 补全缺失图片
         let _ = self.upload_gallery_image(&gallery_data_for_catbox).await?;
 
         let article = self.publish_telegraph_article(gallery).await?;
@@ -215,13 +227,24 @@ impl ExloliUploader {
             .create_message_text(gallery, &article.url)
             .await?;
             
-        self.bot
+        // 🌟修復：加上 HTML 解析，並優雅處理未修改報錯
+        let edit_res = self.bot
             .edit_message_text(
                 self.config.telegram.channel_id.clone(),
                 MessageId(msg.id),
                 text,
             )
-            .await?;
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .await;
+
+        if let Err(e) = edit_res {
+            if e.to_string().contains("message is not modified") {
+                debug!("重新發布時內容未改變，忽略錯誤");
+            } else {
+                return Err(e.into());
+            }
+        }
+            
         TelegraphEntity::update(gallery.id, &article.url).await?;
         Ok(())
     }
