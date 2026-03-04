@@ -43,7 +43,7 @@ pub async fn cmd_best_text(
 
     for (score, title, gid) in GalleryEntity::list(from_date, to_date, 20, offset).await? {
         let url = gallery_preview_url(channel.clone(), gid).await?;
-        text.push_str(&format!("\n<code>{:.2}</code> - {}", score * 100., link(&url, &title)));
+        text.push_str(&format!("\n<code>{:.2}</code> - {}", score * 100., link(&url, &escape(&title))));
     }
 
     Ok(text)
