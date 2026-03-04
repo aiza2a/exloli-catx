@@ -8,7 +8,7 @@ use teloxide::types::{
 use teloxide::utils::html::{escape, link};
 
 use crate::bot::utils::CallbackData;
-use crate::database::{ChallengeView, GalleryEntity, MessageEntity, TelegraphEntity};
+use crate::database::{ChallengeView, GalleryEntity, MessageEntity, TelegraphEntity, FavoriteEntity};
 use crate::tags::EhTagTransDB;
 
 pub fn cmd_challenge_keyboard(
