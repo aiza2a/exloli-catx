@@ -14,6 +14,7 @@ use crate::database::{ChallengeHistory, GalleryEntity, PollEntity, VoteEntity, I
 use crate::ehentai::GalleryInfo;
 use crate::tags::EhTagTransDB;
 use teloxide::types::{ParseMode, InputFile};
+use teloxide::utils::html::{escape, link, user_mention}; 
 
 pub fn callback_query_handler() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDescription>
 {
@@ -161,7 +162,7 @@ async fn callback_random_another(
             
             let text = format!(
                 "🎲 <b>隨機抽取結果</b>\n\n<b>{}</b>\n\n📄 <b>預覽：</b>{}\n🔗 <b>地址：</b>{}\n⭐️ <b>評分：</b>{:.2}（{:.2}%）",
-                gallery.title_jp.as_ref().unwrap_or(&gallery.title),
+                escape(gallery.title_jp.as_ref().unwrap_or(&gallery.title)),
                 preview,
                 url,
                 score,
