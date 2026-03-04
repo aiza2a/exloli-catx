@@ -8,7 +8,7 @@ use teloxide::types::{
 use teloxide::utils::html::{escape, link};
 
 use crate::bot::utils::CallbackData;
-use crate::database::{ChallengeView, GalleryEntity, MessageEntity, TelegraphEntity, FavoriteEntity};
+use crate::database::{ChallengeView, FavoriteEntity, GalleryEntity, MessageEntity, TelegraphEntity};
 use crate::tags::EhTagTransDB;
 
 pub fn cmd_challenge_keyboard(
@@ -30,19 +30,17 @@ pub async fn cmd_best_text(
     offset: i32,
     channel: Recipient,
 ) -> Result<String> {
-    // 自動排序天數，確保 max_days 是較大的數字（更久以前），min_days 是較小的數字（較近期）
     let max_days = day_a.max(day_b);
     let min_days = day_a.min(day_b);
 
-    // from_date 必須是較早的日期
     let from_date = Utc::now().date_naive() - Duration::days(max_days as i64);
-    // to_date 必須是較晚的日期
     let to_date = Utc::now().date_naive() - Duration::days(min_days as i64);
 
     let mut text = format!("最近 {} ~ {} 天的本子排名（{}）", min_days, max_days, offset);
 
     for (score, title, gid) in GalleryEntity::list(from_date, to_date, 20, offset).await? {
         let url = gallery_preview_url(channel.clone(), gid).await?;
+        // 🌟 已加上 HTML 轉義
         text.push_str(&format!("\n<code>{:.2}</code> - {}", score * 100., link(&url, &escape(&title))));
     }
 
@@ -99,6 +97,7 @@ pub async fn gallery_preview_url(channel_id: Recipient, gallery_id: i32) -> Resu
     }
     Err(anyhow!("找不到画廊"))
 }
+
 pub async fn fav_text(user_id: i64, page: i32, channel: Recipient) -> Result<String> {
     let limit = 15;
     let count = FavoriteEntity::count(user_id).await?;
