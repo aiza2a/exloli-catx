@@ -297,7 +297,7 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, trans: EhTagTransDB, ar
                 
                 let text = format!(
                     "🎲 <b>隨機抽取結果</b>\n\n<b>{}</b>\n\n📄 <b>預覽：</b>{}\n🔗 <b>地址：</b>{}\n⭐️ <b>評分：</b>{:.2}（{:.2}%）",
-                    gallery.title_jp.as_ref().unwrap_or(&gallery.title),
+                    escape(gallery.title_jp.as_ref().unwrap_or(&gallery.title)), // 🌟加上 escape
                     preview,
                     url,
                     score,
