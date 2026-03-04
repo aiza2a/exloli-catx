@@ -21,9 +21,9 @@ pub fn callback_query_handler() -> Handler<'static, DependencyMap, Result<()>, D
         .branch(case![CallbackData::VoteForPoll(poll, option)].endpoint(callback_vote_for_poll))
         .branch(case![CallbackData::Challenge(id, artist)].endpoint(callback_challenge))
         .branch(case![CallbackData::RandomAnother(tags)].endpoint(callback_random_another)) 
-        .endpoint(callback_change_page)
         .branch(case![CallbackData::FavToggle(id)].endpoint(callback_fav_toggle))
         .branch(case![CallbackData::FavPage(page)].endpoint(callback_fav_page))
+        .endpoint(callback_change_page)
 }
 
 async fn callback_challenge(
@@ -109,11 +109,10 @@ async fn callback_change_page(
     callback: CallbackData,
     cfg: Config,
 ) -> Result<()> {
-    // 這裡是你上次不小心刪掉的變量定義
     let (from, to, offset) = match callback {
         CallbackData::PrevPage(from, to, offset) => (from, to, offset - 1),
         CallbackData::NextPage(from, to, offset) => (from, to, offset + 1),
-        _ => unreachable!(),
+        _ => return Ok(()), // 🌟 修復：如果不是翻頁按鈕，直接優雅忽略，絕不崩潰
     };
     
     let text = cmd_best_text(from, to, offset, cfg.telegram.channel_id).await?;
