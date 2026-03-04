@@ -103,7 +103,8 @@ async fn callback_vote_for_poll(
         }
 
         // 🌟 生成帶有收藏按鈕的新鍵盤
-        let keyboard = poll_keyboard(poll, &votes, gallery_id); 
+        let fav_count = crate::database::FavoriteEntity::count_by_gallery(gallery_id).await.unwrap_or(0);
+        let keyboard = poll_keyboard(poll, &votes, gallery_id, fav_count); 
         let text = format!("当前 {} 人投票，{:.2} 分", sum, score * 100.);
 
         if let Some(message) = query.message {
@@ -189,8 +190,15 @@ async fn callback_random_another(
                 rank
             );
 
+            let text = format!( /* ... */ );
+            
+            let fav_count = crate::database::FavoriteEntity::count_by_gallery(gallery.id).await.unwrap_or(0);
+            let fav_text = if fav_count > 0 { format!("⭐ 收藏 ({})", fav_count) } else { "⭐ 收藏".to_string() };
+            let fav_btn = teloxide::types::InlineKeyboardButton::callback(fav_text, CallbackData::FavToggle(gallery.id).pack());
+
             let keyboard = teloxide::types::InlineKeyboardMarkup::new(vec![vec![
                 teloxide::types::InlineKeyboardButton::callback("🎲 再來一個本子", CallbackData::RandomAnother(tags_str).pack()),
+                fav_btn
             ]]);
 
             let images = ImageEntity::get_by_gallery_id(gallery.id).await?;
@@ -222,8 +230,53 @@ async fn callback_random_another(
 async fn callback_fav_toggle(bot: Bot, query: CallbackQuery, id: i32) -> Result<()> {
     let user_id = query.from.id.0 as i64;
     let added = crate::database::FavoriteEntity::toggle(user_id, id).await?;
-    let msg = if added { "⭐ 已加入個人收藏夾！" } else { "❌ 已從收藏夾移除！" };
-    bot.answer_callback_query(query.id).text(msg).show_alert(false).await?;
+    
+    // 全局彈窗
+    let alert_msg = if added { "⭐ 已加入個人收藏夾！" } else { "❌ 已從收藏夾移除！" };
+    bot.answer_callback_query(query.id.clone()).text(alert_msg).show_alert(false).await?;
+
+    // 🌟 獲取最新人數
+    let fav_count = crate::database::FavoriteEntity::count_by_gallery(id).await.unwrap_or(0);
+
+    if let Some(message) = &query.message {
+        if let Some(markup) = &message.reply_markup {
+            let mut new_inline_keyboard = markup.inline_keyboard.clone();
+            let target_pack = CallbackData::FavToggle(id).pack();
+            let mut found = false;
+            
+            for row in &mut new_inline_keyboard {
+                for button in row {
+                    if button.kind.is_callback_data().unwrap_or(false) && button.kind.pack().unwrap_or("") == target_pack {
+                        
+                        let old_text = button.text.clone();
+                        // 🌟 核心：如果是私聊，字會變成"✅ 已收藏"；如果是群聊/頻道，維持原字不變！
+                        let base_text = if message.chat.is_private() {
+                            if added { "✅ 已收藏" } else { "⭐ 收藏" }
+                        } else {
+                            if old_text.starts_with("⭐ 收藏本檔案") { "⭐ 收藏本檔案" } 
+                            else { "⭐ 收藏" }
+                        };
+
+                        // 🌟 拼接人數
+                        button.text = if fav_count > 0 {
+                            format!("{} ({})", base_text, fav_count)
+                        } else {
+                            base_text.to_string()
+                        };
+
+                        found = true;
+                        break;
+                    }
+                }
+                if found { break; }
+            }
+
+            if found {
+                let new_markup = teloxide::types::InlineKeyboardMarkup::new(new_inline_keyboard);
+                let _ = bot.edit_message_reply_markup(message.chat.id, message.id).reply_markup(new_markup).await;
+            }
+        }
+    }
     Ok(())
 }
 
