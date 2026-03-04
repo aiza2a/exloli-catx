@@ -125,6 +125,29 @@ impl EhTagTransDB {
         }
         result
     }
+
+    /// 根據關鍵詞模糊搜索對應的原始英文標籤（用於反向檢索）
+    pub fn search_raw_tags(&self, keyword: &str) -> Vec<String> {
+        let lock = self.db.read().unwrap();
+        let keyword = keyword.to_lowercase();
+        let mut results = vec![keyword.clone()]; // 始終包含用戶原本的輸入
+
+        if let Some(inner) = lock.as_ref() {
+            for ns in &inner.data {
+                for (raw_tag, info) in &ns.data {
+                    // 如果中文名包含了關鍵詞，就把對應的英文標籤加入搜索列表
+                    if info.name.to_lowercase().contains(&keyword) {
+                        results.push(raw_tag.clone());
+                    }
+                }
+            }
+        }
+        
+        results.sort();
+        results.dedup(); // 去重
+        // 限制最多返回 10 個英文標籤，防止 SQL 查詢語句過度膨脹
+        results.into_iter().take(10).collect()
+    }   
 }
 
 #[cfg(test)]
