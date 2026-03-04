@@ -240,7 +240,7 @@ async fn callback_fav_toggle(bot: Bot, query: CallbackQuery, id: i32) -> Result<
     let fav_count = crate::database::FavoriteEntity::count_by_gallery(id).await.unwrap_or(0);
 
     if let Some(message) = &query.message {
-        if let Some(markup) = &message.reply_markup {
+        if let Some(markup) = message.reply_markup() {
             let mut new_inline_keyboard = markup.inline_keyboard.clone();
             let target_pack = CallbackData::FavToggle(id).pack();
             let mut found = false;
