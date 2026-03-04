@@ -11,6 +11,7 @@ use teloxide::utils::html::escape;
 use tracing::info;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 use crate::bot::utils::CallbackData;
+use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 
 use crate::bot::command::{AdminCommand, PublicCommand};
 use crate::bot::handlers::{
@@ -302,9 +303,12 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result
                 );
 
                 // 只在最後一條追加互動按鈕
+                // 修复 1：安全的字符截断
                 let keyboard = if i == count - 1 {
                     let mut tags_str = tags.join(" ");
-                    if tags_str.len() > 40 { tags_str = tags_str[..40].to_string(); }
+                    if tags_str.len() > 40 { 
+                        tags_str = tags_str.chars().take(12).collect(); 
+                    }
                     Some(InlineKeyboardMarkup::new(vec![vec![
                         InlineKeyboardButton::callback("🎲 再來一個本子", CallbackData::RandomAnother(tags_str).pack()),
                     ]]))
@@ -312,16 +316,18 @@ async fn cmd_random(bot: Bot, msg: Message, cfg: Config, args: String) -> Result
                     None
                 };
 
-                // 🌟核心修復：獲取畫廊的圖片列表，拿出第一張作為封面發送
                 let images = ImageEntity::get_by_gallery_id(gallery.id).await?;
                 if let Some(img) = images.first() {
-                    // 使用 send_photo 發送真正的圖文消息
-                    let mut req = bot.send_photo(msg.chat.id, InputFile::url(img.url().parse()?)).caption(&text);
+                    // 修复 2：增加 parse_mode
+                    let mut req = bot.send_photo(msg.chat.id, InputFile::url(img.url().parse()?))
+                                     .caption(&text)
+                                     .parse_mode(ParseMode::Html); 
                     if let Some(kb) = keyboard { req = req.reply_markup(kb); }
                     req.await?;
                 } else {
-                    // 如果極個別畫廊沒有圖片（降級處理）
-                    let mut req = bot.send_message(msg.chat.id, &text);
+                    // 修复 2：增加 parse_mode
+                    let mut req = bot.send_message(msg.chat.id, &text)
+                                     .parse_mode(ParseMode::Html);
                     if let Some(kb) = keyboard { req = req.reply_markup(kb); }
                     req.await?;
                 }
