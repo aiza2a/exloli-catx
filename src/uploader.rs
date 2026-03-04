@@ -199,8 +199,12 @@ impl ExloliUploader {
             let text = self
                 .create_message_text(&current_gallery_data, &telegraph.url)
                 .await?;
+
+            // 🌟 1. 新增：為更新的消息也構建收藏鍵盤
+            let fav_kb = InlineKeyboardMarkup::new(vec![vec![
+                InlineKeyboardButton::callback("⭐ 收藏", CallbackData::FavToggle(current_gallery_data.url.id()).pack())
+            ]]);
                 
-            // 🌟修復：加上 HTML 解析，並優雅處理未修改報錯
             let edit_res = self.bot
                 .edit_message_text(
                     self.config.telegram.channel_id.clone(),
@@ -208,6 +212,7 @@ impl ExloliUploader {
                     text,
                 )
                 .parse_mode(teloxide::types::ParseMode::Html)
+                .reply_markup(fav_kb) // 🌟 2. 新增：掛載鍵盤
                 .await;
 
             if let Err(e) = edit_res {
@@ -237,8 +242,12 @@ impl ExloliUploader {
         let text = self
             .create_message_text(gallery, &article.url)
             .await?;
+
+        // 🌟 1. 新增：為重新發布的消息也構建收藏鍵盤
+        let fav_kb = InlineKeyboardMarkup::new(vec![vec![
+            InlineKeyboardButton::callback("⭐ 收藏", CallbackData::FavToggle(gallery.id).pack())
+        ]]);
             
-        // 🌟修復：加上 HTML 解析，並優雅處理未修改報錯
         let edit_res = self.bot
             .edit_message_text(
                 self.config.telegram.channel_id.clone(),
@@ -246,6 +255,7 @@ impl ExloliUploader {
                 text,
             )
             .parse_mode(teloxide::types::ParseMode::Html)
+            .reply_markup(fav_kb) // 🌟 2. 新增：掛載鍵盤
             .await;
 
         if let Err(e) = edit_res {
