@@ -28,33 +28,29 @@ pub struct ChallengeHistory {
 
 impl ChallengeView {
     pub async fn get_random() -> Result<Vec<Self>> {
-        sqlx::query_as!(
-            Self,
+        // 🌟 修复：去掉感叹号，改为 query_as::<_, Self>，并去掉了内部为了宏校验而写的 as "id: i32" 等类型强转
+        sqlx::query_as::<_, Self>(
             r#"
             SELECT
-                id as "id: i32",
+                id,
                 token,
-                page as "page: i32",
-                artist as "artist!",
-                image_id as "image_id: i32",
+                page,
+                artist,
+                image_id,
                 url,
-                score as "score: f32"
+                score
             FROM (
                 -- 此处使用 group by 嵌套 random，因为默认情况下 group by 只会显示每组的第一个结果
                 SELECT * FROM (
                     SELECT * FROM challenge_view
                     WHERE score > 0.8 AND image_id NOT IN (
-                        -- 此处过滤掉出现在大于 5 个画廊中的图片，因为大概率是广告
-                        -- 还有第一页和最后一页
-                        -- 这个查询太耗时了，现在有基于二维码的过滤了，暂时禁用看一下效果
-                        -- SELECT image_id FROM page GROUP BY image_id HAVING COUNT(gallery_id) > 5
-                        -- UNION
                         SELECT image_id FROM page GROUP BY gallery_id HAVING page = MAX(page)
                         UNION
                         SELECT image_id FROM page GROUP BY gallery_id HAVING page = 1
+                        -- 🌟 排除被标记为广告的图片
                         UNION
                         SELECT id FROM image WHERE hash IN (SELECT hash FROM bad_image)
-                    ) ORDER BY random() LIMIT 500 -- 限制结果数量来提高速度，500 个结果一般能凑齐 4 个作者了
+                    ) ORDER BY random() LIMIT 500 
                 ) GROUP BY artist
             ) ORDER BY random() LIMIT 4"#,
         )
