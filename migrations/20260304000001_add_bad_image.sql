@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS bad_image (
+    hash TEXT PRIMARY KEY,
+    type INTEGER NOT NULL
+);
