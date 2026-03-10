@@ -23,7 +23,7 @@ use crate::database::{
     GalleryEntity, ImageEntity, MessageEntity, PageEntity, PollEntity, TelegraphEntity
 };
 use crate::ehentai::{EhClient, EhGallery, EhGalleryUrl, GalleryInfo};
-use crate::imgbb::ImgBBUploader;
+use crate::kvault::KvaultUploader;
 use crate::tags::EhTagTransDB;
 
 #[derive(Debug, Clone)]
@@ -344,27 +344,29 @@ impl ExloliUploader {
         );
 
         // 消費者：多 Key 輪詢 + 併發控制
-        // 從配置中讀取所有的 API Keys
-        let api_keys = self.config.imgbb.api_keys.clone(); 
-        if api_keys.is_empty() {
-             bail!("未配置 ImgBB API Key！請在 config.toml 中填寫 [imgbb] api_keys");
+        // 从配置中读取自建图床配置
+        let base_url = self.config.kvault.base_url.clone();
+        let api_token = self.config.kvault.api_token.clone();
+        
+        if base_url.is_empty() || api_token.is_empty() {
+             bail!("未配置自建图床！請在 config.toml 中填寫 [kvault] 區塊");
         }
 
         let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60)) // 延長超時以適應輪詢
+            .timeout(Duration::from_secs(60))
             .build()?;
             
-        // 併發限制：建議保持較低 (如 1~3)
         let concurrent_limit = self.config.threads_num.max(3); 
-        // 🌟 新增：獲取畫廊的總頁數，用於計算廣告高危區
         let total_pages = gallery.pages.len() as i32;
+        
+        // 实例化新的 Kvault Uploader
+        let uploader_client = KvaultUploader::new(&base_url, &api_token);
         
         let uploader = tokio::spawn(
             async move {
                 let semaphore = Arc::new(Semaphore::new(concurrent_limit));
                 let mut join_set = JoinSet::new();
                 let mut processed_count = 0; 
-                let mut key_index = 0; // 輪詢計數器
 
                 while let Some((page, (fileindex, url))) = rx.recv().await {
                     tokio::time::sleep(Duration::from_secs(1)).await; 
@@ -378,15 +380,11 @@ impl ExloliUploader {
                     
                     let filename = format!("{}.{}", page.hash(), suffix);
                     
-                    // 【核心邏輯】輪流選取 Key
-                    let current_key = api_keys[key_index % api_keys.len()].clone();
-                    key_index += 1; // 下一張圖用下一個 Key
-
-                    // 動態創建帶有當前 Key 的上傳器
-                    let imgbb = ImgBBUploader::new(&current_key);
-                    
                     let permit = semaphore.clone().acquire_owned().await.unwrap();
                     let client_clone = http_client.clone();
+                    
+                    // 克隆上传器以供并发任务使用
+                    let img_uploader = uploader_client.clone(); 
 
                     join_set.spawn(async move {
                         let mut success = false;
@@ -394,41 +392,35 @@ impl ExloliUploader {
                             match client_clone.get(&url).send().await {
                                 Ok(res) => {
                                     if let Ok(bytes) = res.bytes().await {
-                                        // 🌟 2. 優化：只掃描前 3 頁和最後 10 頁，節省 CPU 算力
                                         let p = page.page();
                                         let should_scan = p >= total_pages - 8;
 
                                         if should_scan && crate::bot::utils::has_qrcode(&bytes).unwrap_or(false) {
                                             info!("🚨 檢測到廣告/招募圖 (包含二維碼)，自動攔截：{}", page.hash());
                                             let _ = crate::database::BadImageEntity::mark(page.hash(), 2).await;
-                                            success = true; // 標記為 true 以通過總數校驗，但絕不上傳到 ImgBB
+                                            success = true; 
                                             break; 
                                         }
-                                        // 使用輪詢到的 Key 進行上傳
-                                        match imgbb.upload_file(&filename, &bytes).await {
+                                        
+                                        // 调用新的上传器逻辑
+                                        match img_uploader.upload_file(&filename, &bytes).await {
                                             Ok(uploaded_url) => {
-                                                info!("ImgBB 上傳成功 [Key尾號{}]: {} -> {}", 
-                                                    // 打印 Key 的最後幾位方便調試
-                                                    &imgbb.api_key.chars().last().unwrap_or('?'), 
-                                                    page.page(), 
-                                                    uploaded_url
-                                                );
+                                                info!("图床上传成功: {} -> {}", page.page(), uploaded_url);
                                                 let _ = ImageEntity::create(fileindex, page.hash(), &uploaded_url).await;
                                                 let _ = PageEntity::create(page.gallery_id(), page.page(), fileindex).await;
                                                 success = true;
                                                 break; 
                                             }
-                                            Err(err) => error!("ImgBB 上傳失敗 (嘗試 {}/3): {}", attempt, err),
+                                            Err(err) => error!("图床上传失败 (尝试 {}/3): {}", attempt, err),
                                         }
                                     }
                                 }
-                                Err(err) => error!("E 站下載失敗 (嘗試 {}/3): {}", attempt, err),
+                                Err(err) => error!("E 站下载失败 (尝试 {}/3): {}", attempt, err),
                             }
-                            // 失敗退避
                             if attempt < 3 { tokio::time::sleep(Duration::from_secs(3)).await; }
                         }
                         
-                        if !success { error!("🚨 圖片 {} 徹底上傳失敗", page.page()); }
+                        if !success { error!("🚨 圖片 {} 彻底上传失败", page.page()); }
                         
                         drop(permit);
                         success 
