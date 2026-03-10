@@ -369,7 +369,7 @@ impl ExloliUploader {
                 let mut processed_count = 0; 
 
                 while let Some((page, (fileindex, url))) = rx.recv().await {
-                    tokio::time::sleep(Duration::from_secs(1)).await; 
+                    // 🚀 删除了原有的 tokio::time::sleep(Duration::from_secs(1)).await; 彻底解除限速
 
                     let mut suffix = url.split('.').last().unwrap_or("jpg");
                     if suffix == "webp" { suffix = "jpg"; }
@@ -382,42 +382,34 @@ impl ExloliUploader {
                     
                     let permit = semaphore.clone().acquire_owned().await.unwrap();
                     let client_clone = http_client.clone();
-                    
-                    // 克隆上传器以供并发任务使用
                     let img_uploader = uploader_client.clone(); 
 
                     join_set.spawn(async move {
                         let mut success = false;
+                        
+                        // 依然保留 3 次重试，但对于自建图床几乎用不到
                         for attempt in 1..=3 {
                             match client_clone.get(&url).send().await {
                                 Ok(res) => {
                                     if let Ok(bytes) = res.bytes().await {
-                                        let p = page.page();
-                                        let should_scan = p >= total_pages - 8;
+                                        // 🗑️ 已经彻底删除了 has_qrcode 二维码检测相关的代码
 
-                                        if should_scan && crate::bot::utils::has_qrcode(&bytes).unwrap_or(false) {
-                                            info!("🚨 檢測到廣告/招募圖 (包含二維碼)，自動攔截：{}", page.hash());
-                                            let _ = crate::database::BadImageEntity::mark(page.hash(), 2).await;
-                                            success = true; 
-                                            break; 
-                                        }
-                                        
-                                        // 调用新的上传器逻辑
                                         match img_uploader.upload_file(&filename, &bytes).await {
                                             Ok(uploaded_url) => {
                                                 info!("图床上传成功: {} -> {}", page.page(), uploaded_url);
                                                 let _ = ImageEntity::create(fileindex, page.hash(), &uploaded_url).await;
                                                 let _ = PageEntity::create(page.gallery_id(), page.page(), fileindex).await;
                                                 success = true;
-                                                break; 
+                                                break; // 成功则跳出重试循环
                                             }
                                             Err(err) => error!("图床上传失败 (尝试 {}/3): {}", attempt, err),
                                         }
                                     }
                                 }
-                                Err(err) => error!("E 站下载失败 (尝试 {}/3): {}", attempt, err),
+                                Err(err) => error!("E站下载失败 (尝试 {}/3): {}", attempt, err),
                             }
-                            if attempt < 3 { tokio::time::sleep(Duration::from_secs(3)).await; }
+                            // 如果失败了才稍微等一下，避免死循环攻击
+                            if attempt < 3 { tokio::time::sleep(Duration::from_secs(2)).await; }
                         }
                         
                         if !success { error!("🚨 圖片 {} 彻底上传失败", page.page()); }
@@ -426,6 +418,8 @@ impl ExloliUploader {
                         success 
                     }.in_current_span());
                 }
+                
+                // ... 下方的 join_set.join_next().await 保持不变
                 
                 while let Some(res) = join_set.join_next().await {
                     match res {
