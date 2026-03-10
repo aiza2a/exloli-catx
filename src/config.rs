@@ -18,12 +18,13 @@ pub struct Config {
     pub exhentai: ExHentai,
     pub telegraph: Telegraph,
     pub telegram: Telegram,
-    pub imgbb: ImgBBConfig,
+    pub kvault: KvaultConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct ImgBBConfig {
-    pub api_keys: Vec<String>,
+pub struct KvaultConfig {
+    pub base_url: String,
+    pub api_token: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
